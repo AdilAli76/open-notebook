@@ -251,9 +251,13 @@ def main() -> None:
     log(f"1/3 picking {args.clips} clips ({args.picker})...")
     clips = None
     if args.picker == "llm":
-        clips = pick_llm(segs, args.clips, args.min_seconds, args.max_seconds,
-                         args.notebook_api.rstrip("/"),
-                         os.environ.get("OPEN_NOTEBOOK_PASSWORD"), args.llm_model)
+        try:
+            clips = pick_llm(segs, args.clips, args.min_seconds, args.max_seconds,
+                             args.notebook_api.rstrip("/"),
+                             os.environ.get("OPEN_NOTEBOOK_PASSWORD"),
+                             args.llm_model)
+        except SystemExit as e:  # http() exits on network/API errors
+            log(f"    LLM picker unavailable: {e}")
         if not clips:
             log("    LLM gave no usable clips; falling back to heuristic")
     clips = clips or pick_heuristic(segs, args.clips, args.min_seconds,

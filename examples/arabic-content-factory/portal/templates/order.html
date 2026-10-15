@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}طلب #{{ o.id }} — {{ brand }}{% endblock %}
+{% block content %}
+{% if o.status in ("paid", "processing") %}<meta http-equiv="refresh" content="30">{% endif %}
+<div class="card">
+  <h2>طلب #{{ o.id }} <span class="badge s-{{ o.status }}">{{ status_names[o.status] }}</span></h2>
+  <p class="muted">احفظ رابط هذه الصفحة؛ منه تتابع الطلب وتحمّل الملفات.</p>
+  <table>
+    <tr><th>الفيديو</th><td>{{ o.title }}</td></tr>
+    <tr><th>المدة</th><td>{{ "%.1f"|format(o.minutes) }} دقيقة</td></tr>
+    <tr><th>اللهجة</th><td>{{ dialects[o.dialect] }}</td></tr>
+    <tr><th>الإضافات</th><td>{% if o.lipsync %}مزامنة الشفاه{% endif %}{% if o.lipsync and o.shorts %} · {% endif %}{% if o.shorts %}مقاطع قصيرة{% endif %}{% if not o.lipsync and not o.shorts %}—{% endif %}</td></tr>
+    <tr><th>الإجمالي</th><td><b>{{ "%.2f"|format(o.price) }} {{ currency }}</b></td></tr>
+  </table>
+</div>
+
+{% if o.status == "awaiting_payment" %}
+<div class="card">
+  {% if payment == "stripe" %}
+    <form method="post" action="/order/{{ o.token }}/pay"><button type="submit">ادفع {{ "%.2f"|format(o.price) }} {{ currency }} بالبطاقة</button></form>
+    <p class="muted">بعد الدفع تبدأ الدبلجة تلقائيًا.</p>
+  {% else %}
+    <h2>طريقة الدفع</h2>
+    <p>{{ instructions }}</p>
+    <p class="muted">رقم الطلب: <b dir="ltr">{{ o.id }}</b>. نبدأ التنفيذ فور تأكيد استلام المبلغ.</p>
+  {% endif %}
+</div>
+{% elif o.status in ("paid", "processing") %}
+<div class="card"><p>طلبك قيد التنفيذ. يستغرق عادةً بين 5 و30 دقيقة بحسب مدة الفيديو. تتحدّث هذه الصفحة تلقائيًا.</p></div>
+{% elif o.status == "done" %}
+<div class="card">
+  <h2>ملفاتك جاهزة</h2>
+  <ul class="files">
+    {% for f in files %}<li><a class="btn" href="/order/{{ o.token }}/file/{{ f }}">تحميل {{ f }}</a></li>{% endfor %}
+  </ul>
+  <p class="muted">تبقى الملفات متاحة 30 يومًا.</p>
+</div>
+{% elif o.status == "failed" %}
+<div class="card"><p>واجهنا مشكلة في معالجة هذا الفيديو. سنتواصل معك على {{ o.email }} لإعادة المحاولة أو استرداد المبلغ.</p></div>
+{% endif %}
+{% endblock %}

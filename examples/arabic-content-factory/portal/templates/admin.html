@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}لوحة التحكم — {{ brand }}{% endblock %}
+{% block content %}
+<div class="card">
+  <h2>لوحة التحكم</h2>
+  <div class="grid">
+    <div class="stat"><span class="muted">الطلبات</span><b>{{ orders|length }}</b></div>
+    <div class="stat"><span class="muted">الإيراد المؤكد</span><b>{{ "%.2f"|format(revenue) }} {{ currency }}</b></div>
+    <div class="stat"><span class="muted">بانتظار الدفع</span><b>{{ orders|selectattr("status","equalto","awaiting_payment")|list|length }}</b></div>
+    <div class="stat"><span class="muted">قيد التنفيذ</span><b>{{ orders|selectattr("status","in",["paid","processing"])|list|length }}</b></div>
+  </div>
+</div>
+<div class="card scroll">
+<table>
+  <tr><th>#</th><th>العميل</th><th>الفيديو</th><th>السعر</th><th>الحالة</th><th>إجراء</th></tr>
+  {% for o in orders %}
+  <tr>
+    <td dir="ltr"><a href="/order/{{ o.token }}">{{ o.id }}</a></td>
+    <td>{{ o.name or "—" }}<br><span class="muted" dir="ltr">{{ o.email }}</span></td>
+    <td>{{ o.title }}<br><span class="muted">{{ "%.1f"|format(o.minutes) }} د · {{ dialects[o.dialect] }}{% if o.lipsync %} · شفاه{% endif %}{% if o.shorts %} · قصيرة{% endif %}</span>
+      {% if o.error %}<br><span class="s-failed">{{ o.error }}</span>{% endif %}</td>
+    <td>{{ "%.2f"|format(o.price) }}</td>
+    <td><span class="badge s-{{ o.status }}">{{ status_names[o.status] }}</span></td>
+    <td>
+      {% if o.status == "awaiting_payment" %}
+      <form method="post" action="/admin/{{ o.id }}/mark_paid"><input type="text" name="ref" placeholder="مرجع التحويل"><button class="secondary">تأكيد الدفع</button></form>
+      {% endif %}
+      {% if o.status == "failed" %}<form method="post" action="/admin/{{ o.id }}/retry"><button class="secondary">إعادة المحاولة</button></form>{% endif %}
+      {% if o.status in ("awaiting_payment", "paid", "failed") %}<form method="post" action="/admin/{{ o.id }}/cancel"><button class="secondary">إلغاء</button></form>{% endif %}
+    </td>
+  </tr>
+  {% endfor %}
+</table>
+</div>
+{% endblock %}

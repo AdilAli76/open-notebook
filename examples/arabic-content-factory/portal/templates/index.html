@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card">
+  <h1>فيديوهاتك بالعربية… وبصوتك أنت</h1>
+  <p class="muted">نحوّل أي فيديو إلى نسخة عربية مدبلجة باللهجة التي يفهمها جمهورك. نحافظ على صوت كل متكلم ونبرته، ونبقي الموسيقى الأصلية. ويمكن أيضًا أن نجعل حركة الشفاه تطابق الكلام العربي.</p>
+  <div class="grid">
+    <div class="stat"><span class="muted">الدقيقة</span><b dir="ltr">{{ "%g"|format(prices.per_min) }} {{ currency }}</b></div>
+    <div class="stat"><span class="muted">مزامنة الشفاه / دقيقة</span><b dir="ltr">+{{ "%g"|format(prices.lipsync) }} {{ currency }}</b></div>
+    <div class="stat"><span class="muted">حزمة 3 مقاطع قصيرة</span><b dir="ltr">+{{ "%g"|format(prices.shorts) }} {{ currency }}</b></div>
+    <div class="stat"><span class="muted">رسوم الطلب</span><b dir="ltr">{{ "%g"|format(prices.base) }} {{ currency }}</b></div>
+  </div>
+</div>
+
+<form class="card" method="post" action="/order" enctype="multipart/form-data">
+  <h2>اطلب دبلجة</h2>
+  <label for="url">رابط الفيديو (يوتيوب أو رابط مباشر)</label>
+  <input id="url" name="url" type="url" placeholder="https://www.youtube.com/watch?v=..." dir="ltr">
+  <div class="or">أو</div>
+  <label for="video">ارفع ملف الفيديو (حتى {{ prices.max_mb }} ميغابايت)</label>
+  <input id="video" name="video" type="file" accept="video/*">
+
+  <label for="dialect">اللهجة</label>
+  <select id="dialect" name="dialect">
+    {% for k, v in dialects.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}
+  </select>
+
+  <label class="check"><input type="checkbox" name="lipsync" value="true"> مزامنة حركة الشفاه مع الكلام العربي</label>
+  <label class="check"><input type="checkbox" name="shorts" value="true"> حزمة 3 مقاطع قصيرة عمودية مع ترجمة على الفيديو (لتيك توك وريلز وشورتس)</label>
+
+  <label for="name">الاسم</label>
+  <input id="name" name="name" type="text" autocomplete="name">
+  <label for="email">البريد الإلكتروني</label>
+  <input id="email" name="email" type="email" required autocomplete="email" dir="ltr">
+
+  <label class="check"><input type="checkbox" name="rights" value="true" required> أؤكد أنني أملك حقوق هذا الفيديو أو لديّ إذن صاحبه بدبلجته.</label>
+  <p class="muted">الحد الأقصى لمدة الفيديو {{ "%g"|format(prices.max_minutes) }} دقيقة. يظهر لك السعر النهائي قبل الدفع.</p>
+  <button type="submit">احسب السعر</button>
+</form>
+{% endblock %}
