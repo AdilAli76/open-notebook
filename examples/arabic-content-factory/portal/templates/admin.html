@@ -12,12 +12,12 @@
 </div>
 <div class="card scroll">
 <table>
-  <tr><th>#</th><th>العميل</th><th>الفيديو</th><th>السعر</th><th>الحالة</th><th>إجراء</th></tr>
+  <tr><th>#</th><th>العميل</th><th>المحتوى</th><th>السعر</th><th>الحالة</th><th>إجراء</th></tr>
   {% for o in orders %}
   <tr>
     <td dir="ltr"><a href="/order/{{ o.token }}">{{ o.id }}</a></td>
     <td>{{ o.name or "—" }}<br><span class="muted" dir="ltr">{{ o.email }}</span></td>
-    <td>{{ o.title }}<br><span class="muted">{{ "%.1f"|format(o.minutes) }} د · {{ dialects[o.dialect] }}{% if o.lipsync %} · شفاه{% endif %}{% if o.shorts %} · قصيرة{% endif %}</span>
+    <td>{{ o.title }}<br><span class="muted">{{ "%.1f"|format(o.minutes) }} د · {% if o.service == "cover" %}🎤 غناء: {{ o.voice }}{% if o.pitch %} ({{ "%+d"|format(o.pitch) }}){% endif %}{% else %}{{ dialects[o.dialect] }}{% if o.lipsync %} · شفاه{% endif %}{% if o.shorts %} · قصيرة{% endif %}{% endif %}</span>
       {% if o.error %}<br><span class="s-failed">{{ o.error }}</span>{% endif %}</td>
     <td>{{ "%.2f"|format(o.price) }}</td>
     <td><span class="badge s-{{ o.status }}">{{ status_names[o.status] }}</span></td>

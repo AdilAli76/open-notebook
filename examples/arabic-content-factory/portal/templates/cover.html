@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}غناء بصوت الذكاء الاصطناعي — {{ brand }}{% endblock %}
+{% block content %}
+<div class="card">
+  <h1>أغنيتك… بصوت جديد</h1>
+  <p class="muted">ارفع أغنية أو ضع رابطها، فنعيد غناءها بصوت من أصواتنا المرخّصة. يبقى اللحن والموسيقى كما هما. تستلم ملف MP3 وفيديو عموديًا جاهزًا للنشر.</p>
+  <div class="grid">
+    <div class="stat"><span class="muted">سعر الأغنية</span><b dir="ltr">{{ "%g"|format(price) }} {{ currency }}</b></div>
+    <div class="stat"><span class="muted">أقصى مدة</span><b>{{ "%g"|format(max_minutes) }} دقائق</b></div>
+  </div>
+</div>
+
+{% if not voices %}
+<div class="card"><p>لا توجد أصوات متاحة حاليًا. عُد لاحقًا.</p></div>
+{% else %}
+<form class="card" method="post" action="/cover" enctype="multipart/form-data">
+  <h2>اطلب أغنية</h2>
+  <label for="url">رابط الأغنية</label>
+  <input id="url" name="url" type="url" placeholder="https://www.youtube.com/watch?v=..." dir="ltr">
+  <div class="or">أو</div>
+  <label for="song">ارفع ملف الأغنية (حتى {{ max_mb }} ميغابايت)</label>
+  <input id="song" name="song" type="file" accept="audio/*,video/*">
+
+  <label for="voice">الصوت</label>
+  <select id="voice" name="voice">
+    {% for id, v in voices.items() %}<option value="{{ id }}">{{ v.name }}</option>{% endfor %}
+  </select>
+
+  <label for="pitch">الطبقة</label>
+  <select id="pitch" name="pitch">
+    <option value="0">كما هي</option>
+    <option value="12">أعلى بأوكتاف (من صوت رجالي إلى نسائي)</option>
+    <option value="-12">أخفض بأوكتاف (من صوت نسائي إلى رجالي)</option>
+  </select>
+
+  <label for="name">الاسم</label>
+  <input id="name" name="name" type="text" autocomplete="name">
+  <label for="email">البريد الإلكتروني</label>
+  <input id="email" name="email" type="email" required autocomplete="email" dir="ltr">
+
+  <label class="check"><input type="checkbox" name="rights" value="true" required> أؤكد أنني أملك حقوق هذه الأغنية، أو أنها من التراث الذي سقطت حقوقه، أو أن استخدامي لها شخصي. وأتحمل مسؤولية نشرها.</label>
+  <p class="muted">الملفات الناتجة تحمل وسم «AI cover» توضيحًا بأن الغناء مولَّد بالذكاء الاصطناعي.</p>
+  <button type="submit">متابعة إلى الدفع</button>
+</form>
+{% endif %}
+{% endblock %}

@@ -1,4 +1,4 @@
-"""Customer portal: order -> quote -> pay -> automatic Arabic dub -> download.
+"""Customer portal: order -> quote -> pay -> automatic dub or AI cover -> download.
 
 Run:  uvicorn app:app --host 0.0.0.0 --port 8080   (from this folder)
 Config is read from environment variables, see README.md.
@@ -13,6 +13,7 @@ import math
 import os
 import re
 import secrets
+import shlex
 import shutil
 import sqlite3
 import subprocess
@@ -52,8 +53,12 @@ MANUAL_INSTRUCTIONS = os.environ.get(
     "حوّل المبلغ إلى الحساب الذي نرسله لك، واكتب رقم الطلب في ملاحظة التحويل.")
 STRIPE_SECRET = os.environ.get("STRIPE_SECRET_KEY", "")
 STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
-DUB_EXTRA_ARGS = os.environ.get("DUB_EXTRA_ARGS", "").split()
+DUB_EXTRA_ARGS = shlex.split(os.environ.get("DUB_EXTRA_ARGS", ""))
 RETENTION_DAYS = float(os.environ.get("RETENTION_DAYS", "30"))
+VOICES_DIR = Path(os.environ.get("VOICES_DIR", FACTORY / "voices"))
+PRICE_COVER = float(os.environ.get("PRICE_COVER", "8"))
+MAX_SONG_MINUTES = float(os.environ.get("MAX_SONG_MINUTES", "8"))
+SING_EXTRA_ARGS = shlex.split(os.environ.get("SING_EXTRA_ARGS", ""))
 
 DIALECTS = {
     "msa": "الفصحى",
@@ -71,7 +76,8 @@ STATUS = {
     "cancelled": "ملغى",
     "expired": "انتهت صلاحية الملفات",
 }
-DOWNLOADABLE = re.compile(r"^(dubbed_ar(_lipsync)?\.mp4|segments\.json|short_\d{2}\.mp4)$")
+DOWNLOADABLE = re.compile(r"^(dubbed_ar(_lipsync)?\.mp4|segments\.json|short_\d{2}\.mp4"
+                          r"|cover\.(mp3|mp4|wav))$")
 
 templates = Jinja2Templates(directory=HERE / "templates")
 templates.env.globals.update(brand=BRAND, dialects=DIALECTS, status_names=STATUS,
@@ -94,6 +100,28 @@ def init_db() -> None:
             title TEXT, minutes REAL NOT NULL, dialect TEXT NOT NULL,
             lipsync INTEGER NOT NULL, shorts INTEGER NOT NULL, price REAL NOT NULL,
             status TEXT NOT NULL, payment_ref TEXT, output_dir TEXT, error TEXT)""")
+        have = {r["name"] for r in c.execute("PRAGMA table_info(orders)")}
+        for col, ddl in (("service", "TEXT NOT NULL DEFAULT 'dub'"),
+                         ("voice", "TEXT"), ("pitch", "INTEGER NOT NULL DEFAULT 0")):
+            if col not in have:
+                c.execute(f"ALTER TABLE orders ADD COLUMN {col} {ddl}")
+
+
+def public_voices() -> dict[str, dict]:
+    """Voices trained by train_voice.py that are marked public."""
+    voices = {}
+    for meta_path in sorted(VOICES_DIR.glob("*/voice.json")):
+        try:
+            meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        model = meta_path.parent / str(meta.get("model") or "")
+        if meta.get("public") and meta.get("consent") and model.is_file():
+            index = meta_path.parent / str(meta.get("index") or "")
+            voices[meta["id"]] = {"name": meta.get("display_name", meta["id"]),
+                                  "model": model,
+                                  "index": index if index.is_file() else None}
+    return voices
 
 
 def get_order(token: str) -> sqlite3.Row:
@@ -112,7 +140,9 @@ def set_status(order_id: str, status: str, **fields) -> None:
 
 
 # ------------------------------------------------------------------ pricing
-def quote(minutes: float, lipsync: bool, shorts: bool) -> float:
+def quote(minutes: float, lipsync: bool, shorts: bool, service: str = "dub") -> float:
+    if service == "cover":
+        return round(PRICE_COVER, 2)
     billable = max(1, math.ceil(minutes))
     price = PRICE_BASE + PRICE_PER_MIN * billable
     if lipsync:
@@ -160,7 +190,8 @@ def stripe_checkout(order: sqlite3.Row) -> str:
         "line_items[0][price_data][currency]": CURRENCY,
         "line_items[0][price_data][unit_amount]": str(round(order["price"] * 100)),
         "line_items[0][price_data][product_data][name]":
-            f"Arabic dubbing ({DIALECTS[order['dialect']]}) #{order['id']}",
+            (f"AI cover #{order['id']}" if order["service"] == "cover" else
+             f"Arabic dubbing ({DIALECTS[order['dialect']]}) #{order['id']}"),
     }
     req = urllib.request.Request(
         "https://api.stripe.com/v1/checkout/sessions",
@@ -191,12 +222,29 @@ def verify_stripe(payload: bytes, header: str, secret: str,
 
 
 # ------------------------------------------------------------------- worker
+def run_cover(order: sqlite3.Row, out: Path, src: list[str], log) -> None:
+    voice = public_voices().get(order["voice"])
+    if not voice:
+        raise RuntimeError(f"voice {order['voice']} is no longer available")
+    cmd = [sys.executable, str(FACTORY / "sing.py"), *src, "--model",
+           str(voice["model"]), "--voice-name", voice["name"], "--pitch",
+           str(order["pitch"]), "--video", "--out", str(out), *SING_EXTRA_ARGS]
+    if voice["index"]:
+        cmd += ["--index", str(voice["index"])]
+    if subprocess.run(cmd, stdout=log, stderr=log).returncode != 0:
+        raise RuntimeError("sing.py failed")
+    cover_dir = max(out.glob("cover_*"), key=lambda p: p.stat().st_mtime)
+    set_status(order["id"], "done", output_dir=str(cover_dir))
+
+
 def run_order(order: sqlite3.Row) -> None:
     out = DATA / "orders" / order["id"]
     out.mkdir(parents=True, exist_ok=True)
     log = open(out / "worker.log", "a", encoding="utf-8")
     src = (["--url", order["source_url"]] if order["source_url"]
            else ["--file", order["source_file"]])
+    if order["service"] == "cover":
+        return run_cover(order, out, src, log)
     cmd = [sys.executable, str(FACTORY / "dub.py"), *src, "--dialect",
            order["dialect"], "--out", str(out), *DUB_EXTRA_ARGS]
     if order["lipsync"]:
@@ -285,8 +333,63 @@ def admin(creds: HTTPBasicCredentials = Depends(security)) -> None:
 def index(request: Request):
     prices = {"base": PRICE_BASE, "per_min": PRICE_PER_MIN,
               "lipsync": PRICE_LIPSYNC_PER_MIN, "shorts": PRICE_SHORTS,
-              "max_minutes": MAX_MINUTES, "max_mb": MAX_UPLOAD_MB}
+              "max_minutes": MAX_MINUTES, "max_mb": MAX_UPLOAD_MB,
+              "cover": PRICE_COVER if public_voices() else None}
     return templates.TemplateResponse(request, "index.html", {"prices": prices})
+
+
+def check_common(email: str, rights: bool) -> None:
+    if not rights:
+        raise HTTPException(400, "يجب تأكيد امتلاكك حقوق المحتوى أو إذن صاحبه.")
+    if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email.strip()):
+        raise HTTPException(400, "البريد الإلكتروني غير صالح.")
+
+
+async def intake(order_id: str, url: str, upload: UploadFile | None,
+                 max_minutes: float) -> tuple[str | None, str | None, str, float]:
+    """Store the upload or probe the URL; return (url, file, title, minutes)."""
+    url = url.strip()
+    if upload and upload.filename:
+        dest = DATA / "uploads" / f"{order_id}{Path(upload.filename).suffix.lower()[:8]}"
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        size = 0
+        with open(dest, "wb") as f:
+            while chunk := await upload.read(1 << 20):
+                size += len(chunk)
+                if size > MAX_UPLOAD_MB << 20:
+                    f.close()
+                    dest.unlink()
+                    raise HTTPException(413, f"الحد الأقصى {MAX_UPLOAD_MB} ميغابايت.")
+                f.write(chunk)
+        minutes = probe_file(dest)
+        result = (None, str(dest), upload.filename, minutes)
+    elif url.startswith(("http://", "https://")):
+        title, minutes = probe_url(url)
+        result = (url, None, title, minutes)
+    else:
+        raise HTTPException(400, "أرسل رابطًا أو ارفع ملفًا.")
+    if minutes <= 0 or minutes > max_minutes:
+        if result[1]:
+            Path(result[1]).unlink(missing_ok=True)
+        raise HTTPException(400, f"المدة يجب ألا تتجاوز {max_minutes:g} دقيقة.")
+    return result
+
+
+def insert_order(order_id: str, *, name: str, email: str, src_url, src_file,
+                 title: str, minutes: float, price: float, service: str = "dub",
+                 dialect: str = "msa", lipsync: bool = False, shorts: bool = False,
+                 voice: str | None = None, pitch: int = 0) -> str:
+    token = secrets.token_urlsafe(16)
+    with db() as c:
+        c.execute(
+            "INSERT INTO orders (id, token, created, name, email, source_url, "
+            "source_file, title, minutes, dialect, lipsync, shorts, price, status, "
+            "service, voice, pitch) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (order_id, token, time.time(), name.strip()[:100], email.strip(),
+             src_url, src_file, title[:200], round(minutes, 2), dialect,
+             int(lipsync), int(shorts), price, "awaiting_payment", service,
+             voice, pitch))
+    return token
 
 
 @app.post("/order")
@@ -296,46 +399,43 @@ async def create_order(
     lipsync: bool = Form(False), shorts: bool = Form(False),
     rights: bool = Form(False),
 ):
-    if not rights:
-        raise HTTPException(400, "يجب تأكيد امتلاكك حقوق الفيديو أو إذن صاحبه.")
+    check_common(email, rights)
     if dialect not in DIALECTS:
         raise HTTPException(400, "لهجة غير مدعومة.")
-    if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email.strip()):
-        raise HTTPException(400, "البريد الإلكتروني غير صالح.")
     order_id = secrets.token_hex(4)
-    url = url.strip()
-    source_file = None
-    if video and video.filename:
-        dest = DATA / "uploads" / f"{order_id}{Path(video.filename).suffix.lower()[:8]}"
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        size = 0
-        with open(dest, "wb") as f:
-            while chunk := await video.read(1 << 20):
-                size += len(chunk)
-                if size > MAX_UPLOAD_MB << 20:
-                    f.close()
-                    dest.unlink()
-                    raise HTTPException(413, f"الحد الأقصى {MAX_UPLOAD_MB} ميغابايت.")
-                f.write(chunk)
-        title, minutes = video.filename, probe_file(dest)
-        source_file, url = str(dest), ""
-    elif url.startswith(("http://", "https://")):
-        title, minutes = probe_url(url)
-    else:
-        raise HTTPException(400, "أرسل رابط فيديو أو ارفع ملفًا.")
-    if minutes <= 0 or minutes > MAX_MINUTES:
-        raise HTTPException(400, f"مدة الفيديو يجب ألا تتجاوز {MAX_MINUTES:g} دقيقة.")
+    src_url, src_file, title, minutes = await intake(order_id, url, video, MAX_MINUTES)
+    token = insert_order(order_id, name=name, email=email, src_url=src_url,
+                         src_file=src_file, title=title, minutes=minutes,
+                         price=quote(minutes, lipsync, shorts), dialect=dialect,
+                         lipsync=lipsync, shorts=shorts)
+    return RedirectResponse(f"/order/{token}", status_code=303)
 
-    token = secrets.token_urlsafe(16)
-    with db() as c:
-        c.execute(
-            "INSERT INTO orders (id, token, created, name, email, source_url, "
-            "source_file, title, minutes, dialect, lipsync, shorts, price, status) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-            (order_id, token, time.time(), name.strip()[:100], email.strip(),
-             url or None, source_file, title[:200], round(minutes, 2), dialect,
-             int(lipsync), int(shorts), quote(minutes, lipsync, shorts),
-             "awaiting_payment"))
+
+@app.get("/cover", response_class=HTMLResponse)
+def cover_page(request: Request):
+    return templates.TemplateResponse(request, "cover.html", {
+        "voices": public_voices(), "price": PRICE_COVER,
+        "max_minutes": MAX_SONG_MINUTES, "max_mb": MAX_UPLOAD_MB})
+
+
+@app.post("/cover")
+async def create_cover(
+    email: str = Form(...), name: str = Form(""), url: str = Form(""),
+    song: UploadFile | None = File(None), voice: str = Form(...),
+    pitch: int = Form(0), rights: bool = Form(False),
+):
+    check_common(email, rights)
+    if voice not in public_voices():
+        raise HTTPException(400, "الصوت المختار غير متاح.")
+    if pitch not in (-12, 0, 12):
+        raise HTTPException(400, "طبقة غير مدعومة.")
+    order_id = secrets.token_hex(4)
+    src_url, src_file, title, minutes = await intake(order_id, url, song,
+                                                     MAX_SONG_MINUTES)
+    token = insert_order(order_id, name=name, email=email, src_url=src_url,
+                         src_file=src_file, title=title, minutes=minutes,
+                         price=quote(minutes, False, False, "cover"),
+                         service="cover", voice=voice, pitch=pitch)
     return RedirectResponse(f"/order/{token}", status_code=303)
 
 
@@ -347,8 +447,10 @@ def order_page(request: Request, token: str):
         root = Path(order["output_dir"])
         files = sorted(p.name for p in [*root.iterdir(), *(root / "shorts").glob("*")]
                        if DOWNLOADABLE.match(p.name))
+    voice = public_voices().get(order["voice"] or "")
     return templates.TemplateResponse(request, "order.html", {
         "o": order, "files": files, "payment": PAYMENT,
+        "voice_name": voice["name"] if voice else order["voice"],
         "instructions": MANUAL_INSTRUCTIONS})
 
 

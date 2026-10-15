@@ -6,10 +6,15 @@
   <h2>طلب #{{ o.id }} <span class="badge s-{{ o.status }}">{{ status_names[o.status] }}</span></h2>
   <p class="muted">احفظ رابط هذه الصفحة؛ منه تتابع الطلب وتحمّل الملفات.</p>
   <table>
-    <tr><th>الفيديو</th><td>{{ o.title }}</td></tr>
+    <tr><th>العنوان</th><td>{{ o.title }}</td></tr>
     <tr><th>المدة</th><td>{{ "%.1f"|format(o.minutes) }} دقيقة</td></tr>
+    {% if o.service == "cover" %}
+    <tr><th>الخدمة</th><td>غناء بصوت الذكاء الاصطناعي</td></tr>
+    <tr><th>الصوت</th><td>{{ voice_name }}{% if o.pitch %} ({{ "أعلى" if o.pitch > 0 else "أخفض" }} بأوكتاف){% endif %}</td></tr>
+    {% else %}
     <tr><th>اللهجة</th><td>{{ dialects[o.dialect] }}</td></tr>
     <tr><th>الإضافات</th><td>{% if o.lipsync %}مزامنة الشفاه{% endif %}{% if o.lipsync and o.shorts %} · {% endif %}{% if o.shorts %}مقاطع قصيرة{% endif %}{% if not o.lipsync and not o.shorts %}—{% endif %}</td></tr>
+    {% endif %}
     <tr><th>الإجمالي</th><td><b>{{ "%.2f"|format(o.price) }} {{ currency }}</b></td></tr>
   </table>
 </div>
@@ -18,7 +23,7 @@
 <div class="card">
   {% if payment == "stripe" %}
     <form method="post" action="/order/{{ o.token }}/pay"><button type="submit">ادفع {{ "%.2f"|format(o.price) }} {{ currency }} بالبطاقة</button></form>
-    <p class="muted">بعد الدفع تبدأ الدبلجة تلقائيًا.</p>
+    <p class="muted">بعد الدفع يبدأ التنفيذ تلقائيًا.</p>
   {% else %}
     <h2>طريقة الدفع</h2>
     <p>{{ instructions }}</p>

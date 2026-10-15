@@ -9,6 +9,7 @@
     <div class="stat"><span class="muted">حزمة 3 مقاطع قصيرة</span><b dir="ltr">+{{ "%g"|format(prices.shorts) }} {{ currency }}</b></div>
     <div class="stat"><span class="muted">رسوم الطلب</span><b dir="ltr">{{ "%g"|format(prices.base) }} {{ currency }}</b></div>
   </div>
+  {% if prices.cover %}<p style="margin:16px 0 0">🎤 جديد: <a href="/cover">أعد غناء أي أغنية بصوت الذكاء الاصطناعي</a> بـ <span dir="ltr">{{ "%g"|format(prices.cover) }} {{ currency }}</span>.</p>{% endif %}
 </div>
 
 <form class="card" method="post" action="/order" enctype="multipart/form-data">
