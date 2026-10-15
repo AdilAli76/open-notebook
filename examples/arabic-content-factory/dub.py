@@ -244,6 +244,9 @@ def main() -> None:
         work = Path(tmp)
         out = Path(args.out) / f"dub_{time.strftime('%Y%m%d_%H%M%S')}"
         out.mkdir(parents=True, exist_ok=True)
+        # publish.py reads this to credit the source in every post.
+        (out / "source.json").write_text(json.dumps(
+            {"url": args.url} if args.url else {"file": Path(args.file).name}))
 
         job_id = dub(vs, args, out)
 
