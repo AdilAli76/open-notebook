@@ -127,6 +127,43 @@ python publish.py output/dub_... --no-publish
 0 7 * * * cd /path/to/arabic-content-factory && python3 radar.py --topic "AI news" --auto-dub 2 --dub-args "--dialect egyptian" && for d in output/dub_*/; do [ -d "$d/shorts" ] || python3 publish.py "$d"; done >> factory.log 2>&1
 ```
 
+## غناء الأغاني بصوت الذكاء الاصطناعي: `sing.py`
+
+تعطيه رابط أغنية ونموذج صوت، فيُخرج **نفس الأغنية بنفس اللحن والموسيقى، بصوت الذكاء الاصطناعي**:
+
+| # | المرحلة | الأداة |
+|---|---|---|
+| 1 | تنزيل الصوت وقصّه (اختياري) | yt-dlp + ffmpeg |
+| 2 | فصل صوت المغني عن الموسيقى | Demucs (`htdemucs_ft`) |
+| 3 | تحويل صوت المغني إلى الصوت الجديد مع الحفاظ على اللحن | RVC (`rvc-python`) |
+| 4 | تحسين الصوت، ثم ضبط مقام الموسيقى، ثم الدمج والمعايرة إلى ‎-14 LUFS | ffmpeg |
+| 5 | فيديو عمودي بموجة صوتية وعبارة «AI cover» (اختياري) | ffmpeg |
+
+```bash
+# مرة واحدة: بيئة الأدوات (Python 3.10 + Demucs + RVC)
+bash setup_sing.sh            # أو: bash setup_sing.sh cpu
+export SING_TOOLS_PYTHON=$PWD/.sing-venv/bin/python
+
+python sing.py --url "https://youtu.be/XXXX" --model voices/myvoice.pth \
+  --index voices/myvoice.index --voice-name "صوتي" --video
+```
+
+| الخيار | الوصف |
+|---|---|
+| `--model` · `--index` | نموذج الصوت `.pth` وملف `.index` (الأخير يحسّن التشابه) |
+| `--pitch` | تغيير المقام بأنصاف النغمات: `+12` لتحويل صوت رجالي إلى نسائي، و`-12` للعكس |
+| `--keep-music-key` | تغيير مقام الصوت وحده دون الموسيقى (يصلح فقط مع 0 أو ±12) |
+| `--start` · `--duration` | جزء محدد من الأغنية بالثواني |
+| `--f0-method` | `rmvpe` (افتراضي وأدق) · `crepe` · `harvest` · `pm` |
+| `--convert-cmd` | محوّل بديل مثل Seed-VC أو Applio، مع `{src}` و`{dst}` و`{pitch}` |
+| `--device` | `cuda:0` (افتراضي) أو `cpu` |
+
+الناتج في `output/cover_<الاسم>/`: الملفات `cover.mp3` و`cover.wav` و`cover.mp4` و`vocals_ai.wav` و`instrumental.wav` و`info.json`.
+
+> 🎤 **نموذج الصوت:** درّبه على صوتك أنت أو على صوت مؤدٍّ وافق كتابيًا، بـ 10 إلى 20 دقيقة تسجيل نظيف عبر [Applio](https://github.com/IAHispano/Applio) أو RVC-WebUI. لا تستخدم نماذج أصوات المشاهير.
+>
+> ⚖️ **الحقوق:** اللحن والموسيقى يبقيان ملكًا لأصحاب الأغنية الأصلية. النشر التجاري يحتاج ترخيصًا، أو أغنية تراثية سقطت حقوقها، أو أغنية العميل نفسه. وسيكتشف Content ID على يوتيوب الأغنية غالبًا.
+
 ## بوابة العملاء: `portal/`
 
 موقع عربي يبيع خدمة الدبلجة ويشغّلها تلقائيًا:
